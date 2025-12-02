@@ -1,0 +1,995 @@
+// src/CartPage.jsx
+import React, { useEffect, useState } from "react";
+import "./CartPage.css";
+import { useNavigate } from "react-router-dom";
+
+const CartPage = () => {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const navigate = useNavigate();
+
+  // Get userId – change this if you store it differently
+  const storedUserId = localStorage.getItem("userId");
+  const userId = storedUserId ? parseInt(storedUserId, 10) : null;
+
+  // ---------- Fetch Cart Items ----------
+  const fetchCartItems = async () => {
+    if (!userId) {
+      setError("User not found. Please log in again.");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await fetch(
+        `http://localhost:8888/api/carts/userCart/items/${userId}`
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to load cart items (status ${response.status})`
+        );
+      }
+
+      const data = await response.json(); // List<CartItemDto>
+      setItems(data || []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCartItems();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  // ---------- Remove Item ----------
+  const handleRemove = async (cartItemId) => {
+    if (!window.confirm("Remove this item from your cart?")) return;
+
+    try {
+      const response = await fetch(
+        `http://localhost:8888/api/cartItems/${cartItemId}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to delete cart item");
+      }
+
+      await fetchCartItems();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  // ---------- Change Quantity ----------
+  const handleQuantityChange = async (cartItemId, newQty) => {
+    if (newQty < 1) return;
+
+    try {
+      const response = await fetch(
+        `http://localhost:8888/api/cartItems/${cartItemId}/quantity/${newQty}`,
+        {
+          method: "PUT",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to update quantity");
+      }
+
+      await fetchCartItems();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  // ---------- Total ----------
+  const total = items.reduce((sum, item) => {
+    const price = item.productPrice ?? item.price ?? 0;
+    const qty = item.quantity ?? 1;
+    return sum + price * qty;
+  }, 0);
+
+  return (
+    <div className="cart-page-wrapper">
+      <div className="cart-card">
+        <h1 className="cart-heading">My Cart</h1>
+        <p className="cart-sub">Review your products before checkout</p>
+
+        {loading && <p className="cart-info">Loading cart...</p>}
+        {error && <p className="cart-error">{error}</p>}
+
+        {!loading && !error && (
+          <>
+            {items.length === 0 ? (
+              <p className="cart-info">Your cart is empty.</p>
+            ) : (
+              <div className="cart-items-box">
+                <div className="cart-row cart-header">
+                  <span>Product</span>
+                  <span>Qty</span>
+                  <span>Price</span>
+                  <span></span>
+                </div>
+
+                {items.map((item) => {
+                  const img =
+                    item.image_url || item.imageUrl || item.image || null;
+                  const name = item.productName || item.name || "Product";
+                  const qty = item.quantity ?? 1;
+                  const price = item.productPrice ?? item.price ?? 0;
+
+                  return (
+                    <div className="cart-row" key={item.cartItemId}>
+                      <div className="cart-product-cell">
+                        {img && (
+                          <img
+                            src={img}
+                            alt={name}
+                            className="cart-product-img"
+                          />
+                        )}
+                        <span className="cart-product-name">{name}</span>
+                      </div>
+
+                      <div className="cart-qty-box">
+                        <button
+                          className="qty-btn"
+                          onClick={() =>
+                            handleQuantityChange(item.cartItemId, qty - 1)
+                          }
+                        >
+                          -
+                        </button>
+                        <span className="qty-value">{qty}</span>
+                        <button
+                          className="qty-btn"
+                          onClick={() =>
+                            handleQuantityChange(item.cartItemId, qty + 1)
+                          }
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      <span>₹{price.toLocaleString("en-IN")}</span>
+
+                      <button
+                        className="cart-remove-btn"
+                        onClick={() => handleRemove(item.cartItemId)}
+                        aria-label="Remove item"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  );
+                })}
+
+                <div className="cart-row cart-total">
+                  <span className="cart-product-cell cart-total-label">
+                    Total
+                  </span>
+                  <span></span>
+                  <span></span>
+                  <span>₹{total.toLocaleString("en-IN")}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="cart-actions">
+              <button
+                className="btn-back"
+                onClick={() => navigate("/UserDashBoard")}
+              >
+                Continue Shopping
+              </button>
+
+              <button
+                className="btn-checkout"
+                onClick={() => navigate("/checkout")}
+              >
+                Checkout
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default CartPage;
+---------------------------------------------------------------------------
+
+
+// src/CheckoutPage.jsx
+import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import "./CartPage.css";
+import api from "./axios";
+
+const CheckoutPage = () => {
+  const navigate = useNavigate();
+
+  const [items, setItems] = useState([]);
+  const [loadingCart, setLoadingCart] = useState(true);
+  const [error, setError] = useState(null);
+
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [addressLine, setAddressLine] = useState("");
+  const [city, setCity] = useState("");
+  const [stateName, setStateName] = useState("");
+  const [pincode, setPincode] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("COD");
+  const [placingOrder, setPlacingOrder] = useState(false);
+
+  const storedUserId = localStorage.getItem("userId");
+  const userId = storedUserId ? parseInt(storedUserId, 10) : null;
+
+  const fetchCartItems = async () => {
+    if (!userId) {
+      setError("User not found. Please log in again.");
+      setLoadingCart(false);
+      return;
+    }
+
+    try {
+      setLoadingCart(true);
+      setError(null);
+
+      const response = await fetch(
+        `http://localhost:8888/api/carts/userCart/items/${userId}`
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to load cart items (status ${response.status})`
+        );
+      }
+
+      const data = await response.json();
+      setItems(data || []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoadingCart(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCartItems();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  const totalAmount = items.reduce((sum, item) => {
+    const price = item.productPrice ?? item.price ?? 0;
+    const qty = item.quantity ?? 1;
+    return sum + price * qty;
+  }, 0);
+
+  const handlePlaceOrder = async (e) => {
+    e.preventDefault();
+    setError(null);
+
+    if (!userId) {
+      setError("User not found. Please log in again.");
+      return;
+    }
+
+    if (items.length === 0) {
+      setError("Your cart is empty.");
+      return;
+    }
+
+    const shippingAddress = `${addressLine}, ${city}, ${stateName} - ${pincode}. Name: ${name}, Phone: ${phone}`;
+
+    const payload = {
+      userId: userId,
+      totalAmount: totalAmount,
+      shippingAddress: shippingAddress,
+      orderStatus: "PENDING",
+      paymentMethod: paymentMethod,
+      razorpayOrderId: null,
+    };
+
+    try {
+      setPlacingOrder(true);
+
+      const response = await api.post("/orders", payload);
+      const order = response.data;
+
+      const orderId = order.order_id ?? order.orderId ?? order.id;
+
+      if (!orderId) {
+        throw new Error("Order created but ID not found in response");
+      }
+
+      if (paymentMethod === "COD") {
+        navigate("/order-success", {
+          state: {
+            orderId: orderId,
+            paymentMethod: "COD",
+            order,
+          },
+        });
+      } else {
+        navigate(`/payment/upi/${orderId}`, {
+          state: { order },
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      setError(
+        err.response?.data?.message ||
+          "Failed to place order. Please try again."
+      );
+    } finally {
+      setPlacingOrder(false);
+    }
+  };
+
+  return (
+    <div className="cart-page-wrapper">
+      <div className="cart-card">
+        <h1 className="cart-heading">Checkout</h1>
+        <p className="cart-sub">
+          Enter your details and choose your payment method
+        </p>
+
+        {loadingCart && <p className="cart-info">Loading cart...</p>}
+        {error && <p className="cart-error">{error}</p>}
+
+        {!loadingCart && !error && items.length === 0 && (
+          <p className="cart-info">Your cart is empty.</p>
+        )}
+
+        {!loadingCart && !error && items.length > 0 && (
+          <div className="checkout-layout">
+            {/* LEFT: form */}
+            <form className="checkout-form" onSubmit={handlePlaceOrder}>
+              <h2 className="section-heading">Shipping Details</h2>
+
+              <div className="form-group">
+                <label>Full Name</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Phone</label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Address</label>
+                <textarea
+                  rows="2"
+                  value={addressLine}
+                  onChange={(e) => setAddressLine(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>City</label>
+                  <input
+                    type="text"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>State</label>
+                  <input
+                    type="text"
+                    value={stateName}
+                    onChange={(e) => setStateName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Pincode</label>
+                  <input
+                    type="text"
+                    value={pincode}
+                    onChange={(e) => setPincode(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <h2 className="section-heading">Payment Method</h2>
+              <div className="payment-options">
+                <label className="radio-option">
+                  <input
+                    type="radio"
+                    name="payment"
+                    value="COD"
+                    checked={paymentMethod === "COD"}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                  />
+                  Cash on Delivery (COD)
+                </label>
+
+                <label className="radio-option">
+                  <input
+                    type="radio"
+                    name="payment"
+                    value="UPI"
+                    checked={paymentMethod === "UPI"}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                  />
+                  UPI (Scan & Pay)
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                className="btn-checkout"
+                disabled={placingOrder}
+              >
+                {placingOrder
+                  ? "Placing Order..."
+                  : paymentMethod === "COD"
+                  ? "Place Order"
+                  : "Proceed to UPI Payment"}
+              </button>
+            </form>
+
+            {/* RIGHT: summary */}
+            <div className="checkout-summary">
+              <h2 className="section-heading">Order Summary</h2>
+              <div className="cart-items-box">
+                {items.map((item) => {
+                  const name = item.productName || item.name || "Product";
+                  const qty = item.quantity ?? 1;
+                  const price = item.productPrice ?? item.price ?? 0;
+                  return (
+                    <div className="cart-row" key={item.cartItemId}>
+                      <div className="cart-product-cell">
+                        <span className="cart-product-name">{name}</span>
+                      </div>
+                      <span>x {qty}</span>
+                      <span>
+                        ₹{(price * qty).toLocaleString("en-IN")}
+                      </span>
+                    </div>
+                  );
+                })}
+
+                <div className="cart-row cart-total">
+                  <span className="cart-product-cell cart-total-label">
+                    Total
+                  </span>
+                  <span></span>
+                  <span>₹{totalAmount.toLocaleString("en-IN")}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default CheckoutPage;
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+
+// src/UpiPaymentPage.jsx
+import React, { useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import "./CartPage.css";
+import api from "./axios";
+import upiQr from "./images/upi_qr.png"; // make sure file exists here
+
+const UpiPaymentPage = () => {
+  const { orderId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const order = location.state?.order;
+
+  const handleConfirmPayment = async () => {
+    setError("");
+    try {
+      setLoading(true);
+
+      // PUT /api/orders/{id}/payment-status?status=PAID
+      await api.put(`/orders/${orderId}/payment-status`, null, {
+        params: { status: "PAID" },
+      });
+
+      navigate("/order-success", {
+        state: {
+          orderId,
+          paymentMethod: "UPI",
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      setError(
+        err.response?.data?.message ||
+          "Failed to confirm payment. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const amount = order?.totalAmount
+    ? Number(order.totalAmount)
+    : null;
+
+  return (
+    <div className="cart-page-wrapper">
+      <div className="cart-card upi-card">
+        <h1 className="cart-heading">Scan &amp; Pay</h1>
+        <p className="cart-sub">
+          Scan this QR using any UPI app and complete the payment.
+        </p>
+
+        <div className="upi-content">
+          <div className="upi-qr-wrapper">
+            <img src={upiQr} alt="UPI QR code" className="upi-qr" />
+          </div>
+
+          <div className="upi-details">
+            <p>UPI ID</p>
+            <p className="upi-id">shopsphere@upi</p>
+            {amount !== null && (
+              <p className="upi-amount">
+                Amount:{" "}
+                <strong>
+                  ₹{amount.toLocaleString("en-IN", {
+                    minimumFractionDigits: 2,
+                  })}
+                </strong>
+              </p>
+            )}
+            <p className="upi-note">
+              After completing the payment in your UPI app, click the button
+              below.
+            </p>
+          </div>
+        </div>
+
+        {error && <p className="cart-error">{error}</p>}
+
+        <button
+          className="btn-checkout"
+          onClick={handleConfirmPayment}
+          disabled={loading}
+        >
+          {loading ? "Confirming..." : "I have completed the payment"}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default UpiPaymentPage;
+-----------------------------------------------------------------------------------------------------------------------------------
+// src/OrderSuccessPage.jsx
+import React from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import "./CartPage.css";
+
+const OrderSuccessPage = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const order = location.state?.order;
+  const orderId =
+    location.state?.orderId ||
+    order?.order_id ||
+    order?.orderId ||
+    order?.id;
+
+  const paymentMethod =
+    location.state?.paymentMethod || order?.paymentMethod || "COD";
+
+  return (
+    <div className="cart-page-wrapper">
+      <div className="cart-card success-card">
+        <h1 className="cart-heading">🎉 Order Placed Successfully!</h1>
+
+        {orderId && (
+          <p className="cart-sub">
+            Your Order ID is <strong>{orderId}</strong>.
+          </p>
+        )}
+
+        <p className="cart-sub">
+          Payment method:{" "}
+          <strong>{paymentMethod === "UPI" ? "UPI" : "Cash on Delivery"}</strong>
+        </p>
+
+        <button
+          className="btn-checkout"
+          onClick={() => navigate("/UserDashBoard")}
+        >
+          Go to Dashboard
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default OrderSuccessPage;
+-------------------------------------------------------------------------------------------------------
+/* src/CartPage.css */
+
+/* background */
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  background: radial-gradient(circle at top, #3a2b8a 0, #050314 45%, #020010 100%);
+  color: #f5f5ff;
+}
+
+/* page wrapper */
+.cart-page-wrapper {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 16px;
+}
+
+/* glassmorphism card */
+.cart-card {
+  width: 100%;
+  max-width: 900px;
+  background: rgba(9, 9, 32, 0.78);
+  border-radius: 24px;
+  padding: 28px 32px 32px;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(16px);
+}
+
+/* headings */
+.cart-heading {
+  margin: 0 0 4px;
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.section-heading {
+  margin: 24px 0 8px;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.cart-sub {
+  margin: 0 0 16px;
+  font-size: 0.9rem;
+  color: #c6c7ff;
+}
+
+/* info / error */
+.cart-info {
+  margin-top: 12px;
+  color: #d5d5ff;
+}
+
+.cart-error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 76, 76, 0.12);
+  color: #ffbcbc;
+  font-size: 0.85rem;
+}
+
+/* items table */
+.cart-items-box {
+  margin-top: 16px;
+  border-radius: 18px;
+  padding: 12px 16px;
+  background: radial-gradient(
+      circle at top left,
+      rgba(113, 82, 255, 0.25),
+      transparent 60%
+    ),
+    rgba(10, 10, 40, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cart-row {
+  display: grid;
+  grid-template-columns: 3fr 1fr 1fr 40px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  font-size: 0.9rem;
+}
+
+.cart-header {
+  font-weight: 600;
+  color: #d7d9ff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 4px;
+}
+
+.cart-product-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cart-product-img {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.cart-product-name {
+  font-weight: 500;
+}
+
+.cart-qty-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: center;
+}
+
+.qty-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.qty-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.qty-value {
+  min-width: 24px;
+  text-align: center;
+}
+
+.cart-remove-btn {
+  border: none;
+  background: transparent;
+  color: #ff8f8f;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.cart-total {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 8px;
+  padding-top: 10px;
+  font-weight: 600;
+}
+
+.cart-total-label {
+  font-size: 1rem;
+}
+
+/* buttons */
+.cart-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+/* gradient primary button */
+.btn-checkout,
+.btn-back {
+  flex: 1;
+  padding: 12px 18px;
+  border-radius: 999px;
+  border: none;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.btn-checkout {
+  background: linear-gradient(135deg, #4b7bff, #9b5bff);
+  color: #ffffff;
+  box-shadow: 0 0 18px rgba(104, 135, 255, 0.45);
+}
+
+.btn-checkout:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 22px rgba(133, 158, 255, 0.6);
+}
+
+.btn-back {
+  background: rgba(255, 255, 255, 0.06);
+  color: #f5f5ff;
+}
+
+.btn-back:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ---------- Checkout layout ---------- */
+
+.checkout-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.1fr);
+  gap: 24px;
+  margin-top: 16px;
+}
+
+.checkout-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.form-group label {
+  font-size: 0.85rem;
+  color: #d7d9ff;
+}
+
+.form-group input,
+.form-group textarea {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(7, 9, 32, 0.7);
+  padding: 8px 10px;
+  color: #ffffff;
+  font-size: 0.9rem;
+}
+
+.form-group textarea {
+  resize: vertical;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1.1fr 0.9fr;
+  gap: 10px;
+}
+
+.payment-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: #f1f1ff;
+}
+
+.radio-option input[type="radio"] {
+  accent-color: #7e8cff;
+}
+
+.checkout-summary {
+  align-self: flex-start;
+}
+
+/* ---------- UPI page ---------- */
+
+.upi-card {
+  max-width: 500px;
+}
+
+.upi-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin: 18px 0;
+}
+
+.upi-qr-wrapper {
+  background: #ffffff;
+  padding: 10px;
+  border-radius: 16px;
+  box-shadow: 0 0 16px rgba(0, 0, 0, 0.45);
+}
+
+.upi-qr {
+  display: block;
+  width: 190px;
+  height: 190px;
+  object-fit: contain;
+}
+
+.upi-details {
+  text-align: center;
+}
+
+.upi-id {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.upi-amount {
+  margin: 4px 0;
+}
+
+.upi-note {
+  font-size: 0.8rem;
+  color: #c6c7ff;
+  margin-top: 4px;
+}
+
+/* ---------- Success page ---------- */
+
+.success-card {
+  max-width: 520px;
+  text-align: center;
+}
+
+.success-card .cart-heading {
+  margin-bottom: 10px;
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 768px) {
+  .cart-card {
+    padding: 22px 18px 24px;
+  }
+
+  .checkout-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .cart-row {
+    grid-template-columns: 2.4fr 1fr 1fr 32px;
+  }
+
+  .cart-actions {
+    flex-direction: column-reverse;
+  }
+}
