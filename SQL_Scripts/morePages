@@ -1,0 +1,436 @@
+import React, { useEffect, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import "./CartPage.css";
+import api from "./axios";
+
+const ProductDetailsPage = () => {
+  const { productId } = useParams(); // from /product/:productId
+  const navigate = useNavigate();
+
+  const [product, setProduct] = useState(null);
+  const [qty, setQty] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState("");
+
+  const storedUserId = localStorage.getItem("userId");
+  const userId = storedUserId ? parseInt(storedUserId, 10) : null;
+
+  // ⚠ requires cartId saved in localStorage somewhere after cart is created
+  const storedCartId = localStorage.getItem("cartId");
+  const cartId = storedCartId ? parseInt(storedCartId, 10) : null;
+
+  // -------- Fetch product details --------
+  useEffect(() => {
+    const fetchProduct = async () => {
+      try {
+        setLoading(true);
+        setError("");
+
+        const res = await api.get(`/products/${productId}`); // GET /api/products/{id}
+        setProduct(res.data); // ProductDto
+      } catch (err) {
+        console.error(err);
+        setError(
+          err.response?.data?.message ||
+            "Failed to load product details. Please try again."
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProduct();
+  }, [productId]);
+
+  const ensurePreconditions = () => {
+    if (!userId) {
+      alert("Please log in again to continue.");
+      return false;
+    }
+    if (!cartId) {
+      setError(
+        "Cart not found. Please open your cart once so it gets created, then try again."
+      );
+      return false;
+    }
+    if (!product) return false;
+    return true;
+  };
+
+  // -------- Add to Cart --------
+  const handleAddToCart = async () => {
+    if (!ensurePreconditions()) return;
+
+    try {
+      setAdding(true);
+      setError("");
+
+      const payload = {
+        cartId: cartId,
+        productId: product.product_id,
+        quantity: qty,
+      };
+
+      await api.post("/cart-items", payload);
+
+      if (
+        window.confirm("Item added to cart. Do you want to go to your cart?")
+      ) {
+        navigate("/cart");
+      }
+    } catch (err) {
+      console.error(err);
+      setError(
+        err.response?.data?.message ||
+          "Failed to add product to cart. Please try again."
+      );
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  // -------- Buy Now --------
+  const handleBuyNow = async () => {
+    if (!ensurePreconditions()) return;
+
+    try {
+      setAdding(true);
+      setError("");
+
+      const payload = {
+        cartId: cartId,
+        productId: product.product_id,
+        quantity: qty,
+      };
+
+      await api.post("/cart-items", payload);
+
+      // directly go to checkout like Amazon's Buy Now
+      navigate("/checkout");
+    } catch (err) {
+      console.error(err);
+      setError(
+        err.response?.data?.message ||
+          "Failed to process Buy Now. Please try again."
+      );
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleQtyChange = (newQty) => {
+    if (newQty < 1) return;
+    setQty(newQty);
+  };
+
+  const handleBack = () => {
+    navigate("/UserDashBoard");
+  };
+
+  return (
+    <div className="cart-page-wrapper">
+      <div className="cart-card product-details-card">
+        {loading && <p className="cart-info">Loading product details...</p>}
+        {error && <p className="cart-error">{error}</p>}
+
+        {!loading && !error && product && (
+          <div className="product-details-layout">
+            {/* LEFT: image */}
+            <div className="product-image-box">
+              {product.imageUrl ? (
+                <img
+                  src={product.imageUrl}
+                  alt={product.productName}
+                  className="product-image-main"
+                />
+              ) : (
+                <div className="product-image-placeholder">
+                  {product.productName?.[0] || "P"}
+                </div>
+              )}
+            </div>
+
+            {/* RIGHT: info */}
+            <div className="product-info-box">
+              <h1 className="product-title">
+                {product.productName || "Product"}
+              </h1>
+
+              <p className="product-price">
+                ₹
+                {Number(
+                  product.productPrice ?? 0
+                ).toLocaleString("en-IN")}
+              </p>
+
+              {product.productMrp && (
+                <p className="product-meta">
+                  MRP:{" "}
+                  <span>
+                    ₹
+                    {Number(product.productMrp).toLocaleString("en-IN")}
+                  </span>
+                </p>
+              )}
+
+              {product.brand && (
+                <p className="product-meta">
+                  Brand: <span>{product.brand}</span>
+                </p>
+              )}
+
+              {product.productAvgRating && (
+                <p className="product-meta">
+                  Rating:{" "}
+                  <span>
+                    {Number(product.productAvgRating).toFixed(1)} ★ (
+                    {product.productReviewsCount || 0} reviews)
+                  </span>
+                </p>
+              )}
+
+              {product.productDescription && (
+                <p className="product-description">
+                  {product.productDescription}
+                </p>
+              )}
+
+              <div className="product-actions">
+                <div className="product-qty-control">
+                  <span>Quantity</span>
+                  <div className="cart-qty-box">
+                    <button
+                      className="qty-btn"
+                      onClick={() => handleQtyChange(qty - 1)}
+                    >
+                      -
+                    </button>
+                    <span className="qty-value">{qty}</span>
+                    <button
+                      className="qty-btn"
+                      onClick={() => handleQtyChange(qty + 1)}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                {/* Row: Add to Cart + Buy Now */}
+                <div className="product-buttons">
+                  <button
+                    className="btn-primary"
+                    onClick={handleAddToCart}
+                    disabled={adding}
+                  >
+                    {adding ? "Processing..." : "Add to Cart"}
+                  </button>
+                  <button
+                    className="btn-primary"
+                    onClick={handleBuyNow}
+                    disabled={adding}
+                    style={{ background: "linear-gradient(135deg,#ff9f4b,#ff6a3d)" }}
+                  >
+                    {adding ? "Processing..." : "Buy Now"}
+                  </button>
+                </div>
+
+                {/* Back button under them */}
+                <button className="btn-secondary" onClick={handleBack}>
+                  Back to Products
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!loading && !error && !product && (
+          <p className="cart-info">Product not found.</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default ProductDetailsPage;
+-----------------------------------------------------------------------------------------------------------------------------------------------
+/* ---------- Product Details page ---------- */
+
+.product-details-card {
+  max-width: 980px;
+}
+
+.product-details-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr);
+  gap: 28px;
+  margin-top: 10px;
+}
+
+.product-image-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.product-image-main {
+  width: 100%;
+  max-width: 320px;
+  border-radius: 22px;
+  object-fit: cover;
+  box-shadow: 0 0 30px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.product-image-placeholder {
+  width: 220px;
+  height: 220px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at top, #5c5cff, #1c1c3f);
+  font-size: 4rem;
+  font-weight: 700;
+  color: #ffffff;
+  box-shadow: 0 0 28px rgba(0, 0, 0, 0.7);
+}
+
+.product-info-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.product-title {
+  margin: 0;
+  font-size: 1.7rem;
+  font-weight: 700;
+}
+
+.product-price {
+  margin: 4px 0 6px;
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: #ffda7b;
+}
+
+.product-meta {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #d5d6ff;
+}
+
+.product-meta span {
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.product-description {
+  margin-top: 8px;
+  font-size: 0.9rem;
+  color: #e4e5ff;
+  line-height: 1.5;
+}
+
+.product-actions {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.product-qty-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.product-qty-control span {
+  font-size: 0.9rem;
+  color: #d5d6ff;
+}
+
+.product-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* shared primary / secondary buttons (you can reuse elsewhere) */
+.btn-primary,
+.btn-secondary {
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: none;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #4b7bff, #9b5bff);
+  color: #ffffff;
+  box-shadow: 0 0 18px rgba(104, 135, 255, 0.5);
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 22px rgba(133, 158, 255, 0.7);
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.06);
+  color: #f5f5ff;
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* responsive for product details */
+@media (max-width: 768px) {
+  .product-details-layout {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .product-image-main {
+    max-width: 260px;
+  }
+
+  .product-image-placeholder {
+    width: 190px;
+    height: 190px;
+    font-size: 3rem;
+  }
+}
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+localStorage.setItem("cartId", response.data.cartId);
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+import { useNavigate } from "react-router-dom";
+
+const UserDashBoard = () => {
+  const navigate = useNavigate();
+
+  // ...
+
+  return (
+    <>
+      {products.map((p) => (
+        <div className="product-card" key={p.product_id}>
+          {/* your existing image, name, price code */}
+
+          <button
+            className="btn-secondary"
+            onClick={() => navigate(`/product/${p.product_id}`)}
+          >
+            View Details
+          </button>
+        </div>
+      ))}
+    </>
+  );
+};
